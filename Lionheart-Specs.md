@@ -1,10 +1,11 @@
-LED Cubes
-  -1225007 365 LED
-  -1225001 465 LED
-  -1225002 590 LED
-  -1225005 623 LED
-Filter Cubes
-  -1225100 377/447 DAPI Filter Cube
-  -1225101 469/525 GFP Filter Cube
-  -1225102 586/647 Texas Red Filter Cube
-  -1225105 628/685 CY5 Filter Cube
+- **LED Cubes**
+  - 1225007 365 LED
+  - 1225001 465 LED
+  - 1225002 590 LED
+  - 1225005 623 LED
+
+- **Filter Cubes**
+  - 1225100 377/447 DAPI Filter Cube
+  - 1225101 469/525 GFP Filter Cube
+  - 1225102 586/647 Texas Red Filter Cube
+  - 1225105 628/685 CY5 Filter Cube

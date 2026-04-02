@@ -1,0 +1,289 @@
+// =====================================================
+// ROI Timecourse Analysis
+// -----------------------------------------------------
+// Select either:
+//   1. A plate folder containing device folders, or
+//   2. A single device folder containing day images
+//
+// Workflow:
+// - Opens the earliest day image for each device
+// - Prompts user to draw a rectangle ROI
+// - Measures that same ROI across all day images
+// - Appends everything into one Results table
+// - After each device:
+//      OK     = Next device
+//      Cancel = Done and save
+// =====================================================
+
+macro "ROI Timecourse Analysis" {
+
+    sourceDir = getDirectory("Choose a plate folder or a single device folder");
+    if (sourceDir == "") exit("No folder selected.");
+
+    sourceName = getLastFolderName(sourceDir);
+
+    run("Set Measurements...", "area mean min max integrated redirect=None decimal=3");
+
+    if (isOpen("Results")) {
+        selectWindow("Results");
+        run("Close");
+    }
+
+    row = 0;
+    stopRequested = 0;
+
+    if (folderContainsImages(sourceDir)) {
+        // Single device folder selected
+        processDeviceFolder(sourceDir, sourceName, "Single_Device");
+
+        if (row > 0)
+            promptToSaveResults(sourceName + "_roi_results.csv");
+        else
+            showMessage("Done", "No measurements were recorded.");
+
+        exit();
+    }
+
+    // Otherwise assume plate folder
+    rawList = getFileList(sourceDir);
+
+    deviceCount = 0;
+    for (i = 0; i < rawList.length; i++) {
+        if (endsWith(rawList[i], "/")) {
+            subDir = sourceDir + rawList[i];
+            if (folderContainsImages(subDir))
+                deviceCount++;
+        }
+    }
+
+    if (deviceCount == 0) {
+        exit("No device folders with TIFF images were found in:\n" + sourceDir);
+    }
+
+    deviceNames = newArray(deviceCount);
+    idx = 0;
+    for (i = 0; i < rawList.length; i++) {
+        if (endsWith(rawList[i], "/")) {
+            subDir = sourceDir + rawList[i];
+            if (folderContainsImages(subDir)) {
+                deviceNames[idx] = replace(rawList[i], "/", "");
+                idx++;
+            }
+        }
+    }
+
+    Array.sort(deviceNames);
+
+    plateName = sourceName;
+
+    for (i = 0; i < deviceNames.length; i++) {
+        if (stopRequested == 1)
+            break;
+
+        deviceName = deviceNames[i];
+        deviceDir = sourceDir + deviceName + "/";
+
+        processDeviceFolder(deviceDir, deviceName, plateName);
+    }
+
+    if (row > 0)
+        promptToSaveResults(plateName + "_roi_results.csv");
+    else
+        showMessage("Done", "No measurements were recorded.");
+}
+
+
+// =====================================================
+// Process one device folder
+// =====================================================
+function processDeviceFolder(deviceDir, deviceName, plateName) {
+
+    rawFiles = getFileList(deviceDir);
+
+    tifCount = 0;
+    for (j = 0; j < rawFiles.length; j++) {
+        if (isImageFile(rawFiles[j]))
+            tifCount++;
+    }
+
+    if (tifCount == 0)
+        return;
+
+    fileNames = newArray(tifCount);
+    dayNums   = newArray(tifCount);
+
+    idx = 0;
+    for (j = 0; j < rawFiles.length; j++) {
+        if (isImageFile(rawFiles[j])) {
+            fileNames[idx] = rawFiles[j];
+            dayNums[idx] = extractDayNumber(rawFiles[j]);
+            idx++;
+        }
+    }
+
+    sortByDay(fileNames, dayNums);
+
+    firstPath = deviceDir + fileNames[0];
+    open(firstPath);
+
+    firstFile = fileNames[0];
+    firstDay  = dayNums[0];
+
+    waitForUser(
+        "Analyzing " + deviceName,
+        "Opened: " + firstFile + "\n" +
+        "Day: " + firstDay + "\n\n" +
+        "Use the Rectangle selection tool to draw your ROI.\n" +
+        "When ready, click OK to measure this ROI across all days for " + deviceName + "."
+    );
+
+    if (selectionType() == -1) {
+        close();
+        stopRequested = 1;
+        return;
+    }
+
+    if (selectionType() != 0) {
+        close();
+        showMessage("ROI Error", "Please use a rectangle ROI only.");
+        stopRequested = 1;
+        return;
+    }
+
+    getSelectionBounds(x, y, w, h);
+    close();
+
+    for (j = 0; j < fileNames.length; j++) {
+        path = deviceDir + fileNames[j];
+        open(path);
+
+        makeRectangle(x, y, w, h);
+
+        getStatistics(area, mean, min, max, std);
+        intDen = area * mean;
+
+        setResult("Plate", row, plateName);
+        setResult("Device", row, deviceName);
+        setResult("Day", row, dayNums[j]);
+        setResult("File", row, fileNames[j]);
+        setResult("ROI_X", row, x);
+        setResult("ROI_Y", row, y);
+        setResult("ROI_Width", row, w);
+        setResult("ROI_Height", row, h);
+        setResult("Area", row, area);
+        setResult("Mean", row, mean);
+        setResult("Min", row, min);
+        setResult("Max", row, max);
+        setResult("IntegratedDensity", row, intDen);
+
+        row++;
+        close();
+    }
+
+    updateResults();
+
+    // Ask whether to continue
+    continueToNext = getBoolean(
+        "Finished analyzing " + deviceName + ".\n\n" +
+        "OK = Next device\n" +
+        "Cancel = Done and save results"
+    );
+
+    if (!continueToNext)
+        stopRequested = 1;
+}
+
+
+// =====================================================
+// Save results
+// =====================================================
+function promptToSaveResults(defaultName) {
+    if (!isOpen("Results")) {
+        showMessage("Save Results", "No Results table is open.");
+        return;
+    }
+
+    savePath = File.saveDialog("Save results table", defaultName);
+
+    if (savePath != "") {
+        selectWindow("Results");
+        saveAs("Results", savePath);
+        showMessage("Saved", "Results table saved to:\n" + savePath);
+    } else {
+        showMessage("Not Saved", "Results table was not saved.");
+    }
+}
+
+
+// =====================================================
+// Helpers
+// =====================================================
+function folderContainsImages(dir) {
+    items = getFileList(dir);
+    for (q = 0; q < items.length; q++) {
+        if (isImageFile(items[q]))
+            return true;
+    }
+    return false;
+}
+
+function isImageFile(name) {
+    lower = toLowerCase(name);
+    return endsWith(lower, ".tif") || endsWith(lower, ".tiff");
+}
+
+function extractDayNumber(name) {
+    // Expects filenames like:
+    // Day 4_stitched_-2_1_1.tif
+    // Day 10_stitched_-2_1_1.tif
+
+    day = 999999;
+
+    if (startsWith(name, "Day ")) {
+        us = indexOf(name, "_");
+        if (us > 4) {
+            numStr = substring(name, 4, us);
+            day = parseInt(numStr);
+        }
+    }
+
+    return day;
+}
+
+function sortByDay(names, days) {
+    n = names.length;
+    for (a = 0; a < n - 1; a++) {
+        for (b = 0; b < n - a - 1; b++) {
+            if (days[b] > days[b + 1]) {
+                tempDay = days[b];
+                days[b] = days[b + 1];
+                days[b + 1] = tempDay;
+
+                tempName = names[b];
+                names[b] = names[b + 1];
+                names[b + 1] = tempName;
+            }
+        }
+    }
+}
+
+function getLastFolderName(path) {
+    p = path;
+    if (endsWith(p, "/"))
+        p = substring(p, 0, lengthOf(p) - 1);
+
+    lastSlash = lastIndexOfCustom(p, "/");
+    if (lastSlash == -1)
+        return p;
+
+    return substring(p, lastSlash + 1, lengthOf(p));
+}
+
+function lastIndexOfCustom(str, char) {
+    pos = -1;
+    for (k = 0; k < lengthOf(str); k++) {
+        if (substring(str, k, k + 1) == char)
+            pos = k;
+    }
+    return pos;
+}

@@ -1,0 +1,240 @@
+macro "Normalize VMO Dataset" {
+
+    sourceRoot = getDirectory("Choose SOURCE root folder (e.g. 020326_VMO_blood)");
+    if (sourceRoot=="") exit("No source folder selected.");
+
+    outputRoot = getDirectory("Choose OUTPUT folder for normalized dataset");
+    if (outputRoot=="") exit("No output folder selected.");
+
+    Dialog.create("Normalization Options");
+    Dialog.addChoice("Include image type:", newArray("Both", "Raw", "Stitched"), "Both");
+    Dialog.show();
+    mode = Dialog.getChoice();
+
+    normalizedRoot = outputRoot + "Normalized_Output" + File.separator;
+    File.makeDirectory(normalizedRoot);
+
+    manifestPath = normalizedRoot + "normalization_manifest.tsv";
+    header = "day\tplate\twell\ttype\tsuffix\toriginal_name\toriginal_path\tnormalized_path\n";
+    File.saveString(header, manifestPath);
+
+    dayList = getFileList(sourceRoot);
+    setBatchMode(true);
+
+    for (i = 0; i < dayList.length; i++) {
+        dayEntry = dayList[i];
+        dayPath = sourceRoot + dayEntry;
+
+        if (!File.isDirectory(dayPath))
+            continue;
+
+        dayName = stripTrailingSlash(dayEntry);
+
+        if (!startsWith(dayName, "Day "))
+            continue;
+
+        processDayFolder(dayPath, dayName, normalizedRoot, manifestPath, mode);
+    }
+
+    setBatchMode(false);
+    print("Normalization complete.");
+    print("Mode: " + mode);
+    print("Output: " + normalizedRoot);
+    print("Manifest: " + manifestPath);
+    showMessage("Done", "Normalization complete.\n\nMode: " + mode + "\n\nOutput folder:\n" + normalizedRoot);
+}
+
+function processDayFolder(dayPath, dayName, normalizedRoot, manifestPath, mode) {
+    plateList = getFileList(dayPath);
+
+    for (p = 0; p < plateList.length; p++) {
+        plateEntry = plateList[p];
+        platePath = dayPath + plateEntry;
+
+        if (!File.isDirectory(platePath))
+            continue;
+
+        plateNameRaw = stripTrailingSlash(plateEntry);
+
+        if (!startsWith(toLowerCase(plateNameRaw), "plate "))
+            continue;
+
+        plateName = formatPlateName(plateNameRaw);
+        scanRecursivelyForTifs(platePath, dayName, plateName, normalizedRoot, manifestPath, mode);
+    }
+}
+
+function scanRecursivelyForTifs(dirPath, dayName, plateName, normalizedRoot, manifestPath, mode) {
+    list = getFileList(dirPath);
+
+    for (j = 0; j < list.length; j++) {
+        entry = list[j];
+        fullPath = dirPath + entry;
+
+        if (File.isDirectory(fullPath)) {
+            scanRecursivelyForTifs(fullPath, dayName, plateName, normalizedRoot, manifestPath, mode);
+        } else {
+            lowerName = toLowerCase(entry);
+            if (endsWith(lowerName, ".tif") || endsWith(lowerName, ".tiff")) {
+                handleTif(fullPath, entry, dayName, plateName, normalizedRoot, manifestPath, mode);
+            }
+        }
+    }
+}
+
+function handleTif(fullPath, fileName, dayName, plateName, normalizedRoot, manifestPath, mode) {
+    well = getWellName(fileName);
+    if (well=="")
+        return;
+
+    fileType = "";
+    suffix = "";
+
+    if (indexOf(fileName, "_Stitched[") >= 0) {
+        fileType = "stitched";
+        suffix = getStitchedSuffix(fileName);
+    } else if (indexOf(fileName, "_GFP_") >= 0) {
+        fileType = "raw";
+        suffix = getRawSuffix(fileName);
+    } else {
+        return;
+    }
+
+    if (!shouldIncludeType(fileType, mode))
+        return;
+
+    if (suffix=="")
+        suffix = "unknown";
+
+    plateDir = normalizedRoot + plateName + File.separator;
+    wellDir  = plateDir + well + File.separator;
+
+    File.makeDirectory(plateDir);
+    File.makeDirectory(wellDir);
+
+    ext = getExtension(fileName);
+    normalizedName = dayName + "_" + fileType + "_" + suffix + "." + ext;
+    normalizedPath = wellDir + normalizedName;
+    normalizedPath = uniquifyPath(normalizedPath);
+
+    File.copy(fullPath, normalizedPath);
+
+    row = dayName + "\t" + plateName + "\t" + well + "\t" + fileType + "\t" + suffix + "\t" +
+          fileName + "\t" + fullPath + "\t" + normalizedPath + "\n";
+    File.append(row, manifestPath);
+
+    print("Copied: " + fileName + " --> " + normalizedPath);
+}
+
+function shouldIncludeType(fileType, mode) {
+    if (mode=="Both")
+        return true;
+    if (mode=="Raw" && fileType=="raw")
+        return true;
+    if (mode=="Stitched" && fileType=="stitched")
+        return true;
+    return false;
+}
+
+function getWellName(fileName) {
+    firstUnderscore = indexOf(fileName, "_");
+    if (firstUnderscore < 1)
+        return "";
+    well = substring(fileName, 0, firstUnderscore);
+    return well;
+}
+
+function getRawSuffix(fileName) {
+    firstUnderscore = indexOf(fileName, "_");
+    gfpIndex = indexOf(fileName, "_GFP_");
+
+    if (firstUnderscore < 0 || gfpIndex < 0 || gfpIndex <= firstUnderscore)
+        return "";
+
+    rawPart = substring(fileName, firstUnderscore + 1, gfpIndex);
+    cleaned = sanitizeToken(rawPart);
+    return cleaned;
+}
+
+function getStitchedSuffix(fileName) {
+    firstUnderscore = indexOf(fileName, "_");
+    stitchedIndex = indexOf(fileName, "_Stitched[");
+
+    if (firstUnderscore < 0 || stitchedIndex < 0 || stitchedIndex <= firstUnderscore)
+        return "";
+
+    stitchedPart = substring(fileName, firstUnderscore + 1, stitchedIndex);
+    cleaned = sanitizeToken(stitchedPart);
+    return cleaned;
+}
+
+function sanitizeToken(s) {
+    s = replace(s, " ", "_");
+    s = replace(s, "/", "-");
+    s = replace(s, "\\", "-");
+    s = replace(s, ":", "-");
+    s = replace(s, ";", "-");
+    s = replace(s, ",", "-");
+    s = replace(s, "[", "");
+    s = replace(s, "]", "");
+    s = replace(s, "(", "");
+    s = replace(s, ")", "");
+    return s;
+}
+
+function formatPlateName(name) {
+    lower = toLowerCase(name);
+    if (startsWith(lower, "plate ")) {
+        num = substring(name, 6);
+        formatted = "Plate " + num;
+        return formatted;
+    }
+    return name;
+}
+
+function stripTrailingSlash(pathOrName) {
+    if (endsWith(pathOrName, "/") || endsWith(pathOrName, "\\")) {
+        trimmed = substring(pathOrName, 0, lengthOf(pathOrName)-1);
+        return trimmed;
+    }
+    return pathOrName;
+}
+
+function getExtension(fileName) {
+    lower = toLowerCase(fileName);
+    if (endsWith(lower, ".tiff"))
+        return "tiff";
+    return "tif";
+}
+
+function uniquifyPath(path) {
+    if (!File.exists(path))
+        return path;
+
+    dot = lastDotIndex(path);
+    if (dot < 0)
+        return path + "_copy";
+
+    base = substring(path, 0, dot);
+    ext  = substring(path, dot);
+
+    n = 2;
+    newPath = base + "_" + n + ext;
+
+    while (File.exists(newPath)) {
+        n = n + 1;
+        newPath = base + "_" + n + ext;
+    }
+
+    return newPath;
+}
+
+function lastDotIndex(s) {
+    pos = -1;
+    for (k = 0; k < lengthOf(s); k++) {
+        ch = substring(s, k, k+1);
+        if (ch==".")
+            pos = k;
+    }
+    return pos;
+}

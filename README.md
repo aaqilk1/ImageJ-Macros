@@ -63,10 +63,22 @@ Revision 1.1 of the macro supports images of a single channel only.
 Revision 1.2 is under development and will support multiple channels.
 
 ## Image Align 
-This macro is designed to help align a sequence of different lionheart images that are skewed (as a result of cutting devices and IF staining). To use this macro, 
-place all of your images in a certain folder and run the macro. It will prompt source and destination images and then bring up a dialog for "horizontal reference". 
-Use the line tool to highlight a horizontal reference (such as a media channel) and the tool will automatically rotate the current image (and any other fluorescence channel) 
-in the sequence to the new angle for stacking/color assignment. 
+This macro is designed to help align a sequence of different lionheart images that are skewed (as a result of cutting devices and IF staining). To use this macro, select a registration image in your source image folder. It is important to run this macro in the unsorted source folder straight from the lionheart. 
+
+1. Select the source image (for that set of images, ie "E1" or "D12", usually the EC channel or BF have the best definition).
+2. Select a destination folder for copied and transformed images (source images remain unmodified).
+3. The macro will open the image in ImageJ and prompt you to use the line tool to highlight the horizontal reference.
+4. Click "OK" and the macro will apply the rotation to destination images in the destination folder.
+
+
+Conditions: 
+- All channel images are in the same folder
+- The channels are seperated by two underscores with the same prefix
+- The horizontal reference must be selected by the user with the line tool
+
+Revision 1.1 supports single and multi channel images in the same folder. 
+Revision 1.2 is under development and will be have the option to select source images from the raw lionheart folder or batch-sorted
+         output folders.
 
 
 ##

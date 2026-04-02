@@ -76,7 +76,7 @@ Conditions:
 - The channels are seperated by two underscores with the same prefix
 - The horizontal reference must be selected by the user with the line tool
 
-Revision 1.1 supports single and multi channel images in the same folder. 
+Revision 1.1 supports single and multi channel images in the same folder.  
 Revision 1.2 is under development and will be have the option to select source images from the raw lionheart folder or batch-sorted
          output folders.
 
